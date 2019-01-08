@@ -1,0 +1,325 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  function8791253A:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-function8791253A
+      Description: !Sub
+        - Stackery Stack ${StackeryStackTagName} Environment ${StackeryEnvironmentTagName} Function ${ResourceName}
+        - ResourceName: startNeo4j
+      CodeUri: src/startNeo4j
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:RunTask
+                - ecs:DescribeTasks
+                - ecs:StopTask
+              Resource:
+                - !Ref dockerTask47AD99FE
+                - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/*
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt dockerTask47AD99FEExecutionRole.Arn
+                - !GetAtt dockerTask47AD99FETaskRole.Arn
+      Environment:
+        Variables:
+          DOCKER_TASK_SUBNETS: !Join
+            - ','
+            - !Ref DefaultVPCSubnets
+          DOCKER_TASK_ARN: !Ref dockerTask47AD99FE
+          DOCKER_SG: !GetAtt fargateSecurityGroup.GroupId
+    Metadata:
+      StackeryName: startNeo4j
+  dockerTask47AD99FE:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Image: docker.io/samgoldstein/context-db:latest
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref dockerTask47AD99FELogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: docker-io-samgoldstein-context-db-latest
+          PortMappings:
+            - ContainerPort: 7474
+              HostPort: 7474
+              Protocol: tcp
+            - ContainerPort: 7473
+              HostPort: 7473
+              Protocol: tcp
+            - ContainerPort: 7687
+              HostPort: 7687
+              Protocol: tcp
+          Name: 0
+          Environment: []
+      Cpu: 1024
+      ExecutionRoleArn: !GetAtt dockerTask47AD99FEExecutionRole.Arn
+      Memory: 3072
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn: !GetAtt dockerTask47AD99FETaskRole.Arn
+      Volumes: []
+    DependsOn: dockerTask47AD99FELogGroup
+    Metadata:
+      StackeryName: neo4j
+  dockerTask47AD99FELogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /stackery/task/${AWS::StackName}-dockerTask47AD99FE/samgoldstein-context-db
+  dockerTask47AD99FEExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-DockerTaskExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DownloadDockerImagesFromECR
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:*:*:log-group:/stackery/task/${AWS::StackName}-*
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+  dockerTask47AD99FETaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-DockerTaskTaskRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+          Action: sts:AssumeRole
+  function47E33BAD:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-function47E33BAD
+      Description: !Sub
+        - Stackery Stack ${StackeryStackTagName} Environment ${StackeryEnvironmentTagName} Function ${ResourceName}
+        - ResourceName: stopNeo4j
+      CodeUri: src/stopNeo4j
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 512
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:StopTask
+                - ecs:ListTasks
+              Resource: '*'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt dockerTask47AD99FEExecutionRole.Arn
+                - !GetAtt dockerTask47AD99FETaskRole.Arn
+      Environment:
+        Variables:
+          DOCKER_TASK_SUBNETS: !Join
+            - ','
+            - !Ref DefaultVPCSubnets
+          DOCKER_TASK_ARN: !Ref dockerTask47AD99FE
+      Events:
+        api4C5FAC75GETstop:
+          Type: Api
+          Properties:
+            Path: /stop
+            Method: GET
+            RestApiId: !Ref api4C5FAC75
+        timer3F72A244:
+          Type: Schedule
+          Properties:
+            Schedule: rate(10 minutes)
+          Metadata:
+            StackeryName: Every 10 minutes
+    Metadata:
+      StackeryName: stopNeo4j
+  api4C5FAC75:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stackery Stack ${StackeryStackTagName} Environment ${StackeryEnvironmentTagName}
+        - ResourceName: api4C5FAC75
+      StageName: !Ref StackeryEnvironmentAPIGatewayStageName
+      DefinitionBody:
+        openapi: '3.0'
+        info: {}
+        paths:
+          /start:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${functionC973F0D0.Arn}/invocations
+              responses: {}
+          /stop:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${function47E33BAD.Arn}/invocations
+              responses: {}
+          /status:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${functionF044B9B0.Arn}/invocations
+              responses: {}
+      EndpointConfiguration: REGIONAL
+  fargateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Neo4j Ports
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 7474
+          ToPort: 7474
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 7473
+          ToPort: 7473
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 7687
+          ToPort: 7687
+          CidrIp: 0.0.0.0/0
+  functionC973F0D0:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-functionC973F0D0
+      Description: !Sub
+        - Stackery Stack ${StackeryStackTagName} Environment ${StackeryEnvironmentTagName} Function ${ResourceName}
+        - ResourceName: startOneNeo4j
+      CodeUri: src/startOneNeo4j
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:StopTask
+                - ecs:ListTasks
+              Resource: '*'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt dockerTask47AD99FEExecutionRole.Arn
+                - !GetAtt dockerTask47AD99FETaskRole.Arn
+        - LambdaInvokePolicy:
+            FunctionName: !Ref function8791253A
+      Events:
+        api4C5FAC75GETstart:
+          Type: Api
+          Properties:
+            Path: /start
+            Method: GET
+            RestApiId: !Ref api4C5FAC75
+      Environment:
+        Variables:
+          DOCKER_TASK_ARN: !Ref dockerTask47AD99FE
+          DOCKER_TASK_SUBNETS: !Join
+            - ','
+            - !Ref DefaultVPCSubnets
+          FUNCTION_NAME: !Ref function8791253A
+          FUNCTION_ARN: !GetAtt function8791253A.Arn
+    Metadata:
+      StackeryName: startOneNeo4j
+  functionF044B9B0:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-functionF044B9B0
+      Description: !Sub
+        - Stackery Stack ${StackeryStackTagName} Environment ${StackeryEnvironmentTagName} Function ${ResourceName}
+        - ResourceName: status
+      CodeUri: src/status
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ecs:ListTasks
+                - ecs:DescribeTasks
+                - ec2:DescribeNetworkInterfaces
+              Resource: '*'
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource:
+                - !GetAtt dockerTask47AD99FEExecutionRole.Arn
+                - !GetAtt dockerTask47AD99FETaskRole.Arn
+        - LambdaInvokePolicy:
+            FunctionName: !Ref function8791253A
+      Events:
+        api4C5FAC75GETstatus:
+          Type: Api
+          Properties:
+            Path: /status
+            Method: GET
+            RestApiId: !Ref api4C5FAC75
+      Environment:
+        Variables:
+          DOCKER_TASK_ARN: !Ref dockerTask47AD99FE
+          DOCKER_TASK_SUBNETS: !Join
+            - ','
+            - !Ref DefaultVPCSubnets
+    Metadata:
+      StackeryName: status
+Parameters:
+  StackeryStackTagName:
+    Type: String
+    Description: Stack Name (injected by Stackery at deployment time)
+  StackeryEnvironmentTagName:
+    Type: String
+    Description: Environment Name (injected by Stackery at deployment time)
+  DefaultVPCSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: AWS account-specific default VPC subnets (injected by Stackery at deployment time)
+  StackeryEnvironmentAPIGatewayStageName:
+    Type: String
+    Description: Environment name used for API Gateway Stage names (injected by Stackery at deployment time)
